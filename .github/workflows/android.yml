@@ -1,3 +1,4 @@
+
 # This is a basic workflow to help you get started with Actions
 
 name: Android build
@@ -32,6 +33,11 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: "Build shaderc for Android ${{matrix.arch}}"
         run: |
+          echo "Installing NDK"
+          curl https://dl.google.com/android/repository/android-ndk-r29-linux.zip --output android-ndk-r29-linux.zip
+          unzip android-ndk-r29-linux.zip
+          export ANDROID_NDK_HOME="$(pwd)/android-ndk-r29"
+          
           ./utils/git-sync-deps
           # Workaround a cmake bug
           sed -i'' -e 's/android log/android -llog/g' third_party/spirv-tools/source/CMakeLists.txt
