@@ -33,10 +33,12 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: "Build shaderc for Android ${{matrix.arch}}"
         run: |
+          pushd ..
           echo "Installing NDK"
           curl https://dl.google.com/android/repository/android-ndk-r29-linux.zip --output android-ndk-r29-linux.zip
-          unzip android-ndk-r29-linux.zip
+          unzip -q android-ndk-r29-linux.zip
           export ANDROID_NDK_HOME="$(pwd)/android-ndk-r29"
+          popd
           
           ./utils/git-sync-deps
           # Workaround a cmake bug
