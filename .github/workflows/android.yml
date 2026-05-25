@@ -62,3 +62,40 @@ jobs:
         with:
           name: libshaderc-${{matrix.arch}}-debug
           path: build/libshaderc/libshaderc_shared.so
+  aar:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Get packaging script
+      uses: actions/checkout@v6
+      with:
+        repository: 'MojoLauncher/mesaunified-packager'
+    - name: Install zip
+      run: sudo apt -y install zip unzip
+    - name: Get shaderc arm64
+      uses: actions/download-artifact@v4
+      with:
+        name: libshaderc-arm64-v8a
+        path: shaderc/arm64-v8a
+    - name: Get shaderc armv7
+      uses: actions/download-artifact@v4
+      with:
+        name: libshaderc-armeabi-v7a
+        path: shaderc/armeabi-v7a
+    - name: Get shaderc x86
+      uses: actions/download-artifact@v4
+      with:
+        name: libshaderc-x86
+        path: shaderc/x86
+    - name: Get shaderc x86_64
+      uses: actions/download-artifact@v4
+      with:
+        name: libshaderc-x86_64
+        path: shaderc/x86_64
+    - name: Pack AAR
+      run: bash create_aar.sh $GITHUB_WORKSPACE/shaderc shaderc
+    - name: Upload packaging result
+      uses: actions/upload-artifact@v7
+      with:
+        name: shaderc-aar
+        path: shaderc.aar
