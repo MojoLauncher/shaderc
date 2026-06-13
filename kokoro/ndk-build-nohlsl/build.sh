@@ -1,6 +1,5 @@
 #!/bin/bash
-
-# Copyright (C) 2017 Google Inc.
+# Copyright 2026 Google LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -e -x
-SCRIPT_DIR=`dirname "$BASH_SOURCE"`
-source $SCRIPT_DIR/../scripts/linux/build.sh DEBUG_EXCEPTION "gcc-15"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd )"
+ROOT_DIR="$( cd "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd )"
+
+SHADERC_ENABLE_HLSL=0
+exec ${ROOT_DIR}/kokoro/scripts/ndk-build/build.sh $SHADERC_ENABLE_HLSL

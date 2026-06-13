@@ -16,4 +16,5 @@
 
 set -e -x
 SCRIPT_DIR=`dirname "$BASH_SOURCE"`
-source $SCRIPT_DIR/../scripts/linux/build.sh DEBUG_EXCEPTION "gcc-15"
+SHADERC_ENABLE_HLSL=OFF
+source $SCRIPT_DIR/../scripts/macos/build.sh RelWithDebInfo
