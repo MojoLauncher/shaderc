@@ -623,10 +623,6 @@ SHADERC_EXPORT const char* shaderc_result_get_error_message(
 SHADERC_EXPORT void shaderc_get_spv_version(unsigned int* version,
                                             unsigned int* revision);
 
-// Returns the version of the SPIRV-Tools library that libshaderc was built
-// against as a null-terminated string
-SHADERC_EXPORT const char* shaderc_get_spirv_tools_version_string(void);
-
 // Parses the version and profile from a given null-terminated string
 // containing both version and profile, like: '450core'. Returns false if
 // the string can not be parsed. Returns true when the parsing succeeds. The
