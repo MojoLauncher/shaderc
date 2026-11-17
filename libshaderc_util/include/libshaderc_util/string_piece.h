@@ -32,9 +32,10 @@ class string_piece {
   typedef const char* iterator;
   static const size_t npos = -1;
 
-  string_piece() {}
+  constexpr string_piece() {}
 
-  string_piece(const char* begin, const char* end) : begin_(begin), end_(end) {
+  constexpr string_piece(const char* begin, const char* end)
+      : begin_(begin), end_(end) {
     assert((begin == nullptr) == (end == nullptr) &&
            "either both begin and end must be nullptr or neither must be");
   }
@@ -74,6 +75,7 @@ class string_piece {
 
   // Returns a string_piece that points to a substring in the original string.
   string_piece substr(size_t pos, size_t len = npos) const {
+    assert(pos <= size());
     assert(len == npos || pos + len <= size());
     return string_piece(begin_ + pos, len == npos ? end_ : begin_ + pos + len);
   }

@@ -411,7 +411,7 @@ TEST_F(CppInterface, ForcedVersionProfileInvalidModule) {
   options_.SetForcedVersionProfile(310, shaderc_profile_es);
   EXPECT_THAT(CompilationErrors(kCoreVertShaderWithoutVersion,
                                 shaderc_glsl_vertex_shader, options_),
-              HasSubstr("error: 'gl_ClipDistance' : undeclared identifier\n"));
+              HasSubstr("error: 'gl_ClipDistance' : required extension not requested"));
 }
 
 TEST_F(CppInterface, ForcedVersionProfileConflictingStd) {
@@ -489,6 +489,21 @@ TEST_F(CppInterface, GenerateDebugInfoDisassembly) {
   EXPECT_THAT(AssemblyOutput(kMinimalDebugInfoShader,
                              shaderc_glsl_vertex_shader, options_),
               HasSubstr("debug_info_sample"));
+}
+
+TEST_F(CppInterface, GenerateNonSemanticDebugInfoDisassembly) {
+  options_.SetGenerateNonSemanticDebugInfo();
+  EXPECT_THAT(AssemblyOutput(kMinimalDebugInfoShader,
+                             shaderc_glsl_vertex_shader, options_),
+              HasSubstr("NonSemantic.Shader.DebugInfo.100"));
+}
+
+TEST_F(CppInterface, GenerateNonSemanticDebugSourceDisassembly) {
+  options_.SetGenerateNonSemanticDebugSource();
+  const std::string disassembly_text = AssemblyOutput(
+      kMinimalDebugInfoShader, shaderc_glsl_vertex_shader, options_);
+  EXPECT_THAT(disassembly_text, HasSubstr("NonSemantic.Shader.DebugInfo.100"));
+  EXPECT_THAT(disassembly_text, HasSubstr("debug_info_sample"));
 }
 
 TEST_F(CppInterface, GenerateDebugInfoDisassemblyClonedOptions) {

@@ -14,6 +14,7 @@
 
 #include "libshaderc_util/compiler.h"
 
+#include <climits>
 #include <cstdint>
 #include <iomanip>
 #include <sstream>
@@ -34,6 +35,10 @@
 namespace {
 using shaderc_util::string_piece;
 
+constexpr const char* kLineDirectivePrefixCstr = "#line ";
+constexpr string_piece kLineDirectivePrefix(kLineDirectivePrefixCstr,
+                                            kLineDirectivePrefixCstr + 6);
+
 // For use with glslang parsing calls.
 const bool kNotForwardCompatible = false;
 
@@ -45,7 +50,8 @@ inline bool LineDirectiveIsForNextLine(int version, EProfile profile) {
 
 // Returns a #line directive whose arguments are line and filename.
 inline std::string GetLineDirective(int line, const string_piece& filename) {
-  return "#line " + std::to_string(line) + " \"" + filename.str() + "\"\n";
+  return kLineDirectivePrefix.str() + std::to_string(line) + " \"" +
+         filename.str() + "\"\n";
 }
 
 // Given a canonicalized #line directive (starting exactly with "#line", using
@@ -55,9 +61,8 @@ inline std::string GetLineDirective(int line, const string_piece& filename) {
 // empty string_piece. Behavior is undefined if the directive parameter is not a
 // canonicalized #line directive.
 std::pair<int, string_piece> DecodeLineDirective(string_piece directive) {
-  const string_piece kLineDirective = "#line ";
-  assert(directive.starts_with(kLineDirective));
-  directive = directive.substr(kLineDirective.size());
+  assert(directive.starts_with(kLineDirectivePrefix));
+  directive = directive.substr(kLineDirectivePrefix.size());
 
   const int line = std::atoi(directive.data());
   const size_t space_loc = directive.find_first_of(' ');
@@ -105,26 +110,21 @@ EShMessages GetMessageRules(shaderc_util::Compiler::TargetEnv env,
   return result;
 }
 
+// Returns the process-wide mutex used to synchronize glslang initialization
+// and finalization without dynamic allocation or global static construction.
+std::mutex& GetGlslangMutex() {
+  static std::mutex glslang_mutex;
+  return glslang_mutex;
+}
+
 }  // anonymous namespace
 
 namespace shaderc_util {
 
 unsigned int GlslangInitializer::initialize_count_ = 0;
-std::mutex* GlslangInitializer::glslang_mutex_ = nullptr;
 
 GlslangInitializer::GlslangInitializer() {
-  static std::mutex first_call_mutex;
-
-  // If this is the first call, glslang_mutex_ needs to be created, but in
-  // thread safe manner.
-  {
-    const std::lock_guard<std::mutex> first_call_lock(first_call_mutex);
-    if (glslang_mutex_ == nullptr) {
-      glslang_mutex_ = new std::mutex();
-    }
-  }
-
-  const std::lock_guard<std::mutex> glslang_lock(*glslang_mutex_);
+  const std::lock_guard<std::mutex> glslang_lock(GetGlslangMutex());
 
   if (initialize_count_ == 0) {
     glslang::InitializeProcess();
@@ -134,18 +134,12 @@ GlslangInitializer::GlslangInitializer() {
 }
 
 GlslangInitializer::~GlslangInitializer() {
-  const std::lock_guard<std::mutex> glslang_lock(*glslang_mutex_);
+  const std::lock_guard<std::mutex> glslang_lock(GetGlslangMutex());
 
   initialize_count_--;
 
   if (initialize_count_ == 0) {
     glslang::FinalizeProcess();
-    // There is no delete for glslang_mutex_ here, because we cannot guarantee
-    // there isn't a caller waiting for glslang_mutex_ in GlslangInitializer().
-    //
-    // This means that this class does leak one std::mutex worth of memory after
-    // the final instance is destroyed, but this allows us to defer allocating
-    // and constructing until we are sure we need to.
   }
 }
 
@@ -190,6 +184,16 @@ std::tuple<bool, std::vector<uint32_t>, size_t> Compiler::Compile(
   bool& succeeded = std::get<0>(result_tuple);
   std::vector<uint32_t>& compilation_output_data = std::get<1>(result_tuple);
   size_t& compilation_output_data_size_in_bytes = std::get<2>(result_tuple);
+
+  // glslang takes source lengths as int; a size_t that does not fit would be
+  // truncated (negative -> glslang falls back to strlen() on a buffer that is
+  // not required to be NUL-terminated). Reject oversized inputs up front.
+  if (input_source_string.size() > static_cast<size_t>(INT_MAX)) {
+    *error_stream << error_tag
+                  << ": error: shader source exceeds INT_MAX bytes\n";
+    *total_errors = 1;
+    return result_tuple;
+  }
 
   // Check target environment.
   const auto target_client_info = GetGlslangClientInfo(
@@ -359,6 +363,8 @@ std::tuple<bool, std::vector<uint32_t>, size_t> Compiler::Compile(
   std::vector<uint32_t>& spirv = compilation_output_data;
   glslang::SpvOptions options;
   options.generateDebugInfo = generate_debug_info_;
+  options.emitNonSemanticShaderDebugInfo = generate_nonsemantic_debug_info_;
+  options.emitNonSemanticShaderDebugSource = generate_nonsemantic_debug_source_;
   options.disableOptimizer = true;
   options.optimizeSize = false;
   // Note the call to GlslangToSpv also populates compilation_output_data.
@@ -450,13 +456,28 @@ void Compiler::SetForcedVersionProfile(int version, EProfile profile) {
 
 void Compiler::SetWarningsAsErrors() { warnings_as_errors_ = true; }
 
-void Compiler::SetGenerateDebugInfo() {
-  generate_debug_info_ = true;
-  for (size_t i = 0; i < enabled_opt_passes_.size(); ++i) {
-    if (enabled_opt_passes_[i] == PassId::kStripDebugInfo) {
-      enabled_opt_passes_[i] = PassId::kNullPass;
+void Compiler::RemoveStripDebugInfoPass() {
+  for (auto& pass : enabled_opt_passes_) {
+    if (pass == PassId::kStripDebugInfo) {
+      pass = PassId::kNullPass;
     }
   }
+}
+
+void Compiler::SetGenerateDebugInfo() {
+  generate_debug_info_ = true;
+  RemoveStripDebugInfoPass();
+}
+
+void Compiler::SetGenerateNonSemanticDebugInfo() {
+  generate_nonsemantic_debug_info_ = true;
+  RemoveStripDebugInfoPass();
+}
+
+void Compiler::SetGenerateNonSemanticDebugSource() {
+  generate_nonsemantic_debug_info_ = true;
+  generate_nonsemantic_debug_source_ = true;
+  RemoveStripDebugInfoPass();
 }
 
 void Compiler::SetOptimizationLevel(Compiler::OptimizationLevel level) {
@@ -465,13 +486,13 @@ void Compiler::SetOptimizationLevel(Compiler::OptimizationLevel level) {
 
   switch (level) {
     case OptimizationLevel::Size:
-      if (!generate_debug_info_) {
+      if (!generate_debug_info_ && !generate_nonsemantic_debug_info_) {
         enabled_opt_passes_.push_back(PassId::kStripDebugInfo);
       }
       enabled_opt_passes_.push_back(PassId::kSizePasses);
       break;
     case OptimizationLevel::Performance:
-      if (!generate_debug_info_) {
+      if (!generate_debug_info_ && !generate_nonsemantic_debug_info_) {
         enabled_opt_passes_.push_back(PassId::kStripDebugInfo);
       }
       enabled_opt_passes_.push_back(PassId::kPerformancePasses);
@@ -619,7 +640,6 @@ std::string Compiler::CleanupPreamble(const string_piece& preprocessed_shader,
 std::pair<EShLanguage, std::string> Compiler::GetShaderStageFromSourceCode(
     string_piece filename, const std::string& preprocessed_shader) const {
   const string_piece kPragmaShaderStageDirective = "#pragma shader_stage";
-  const string_piece kLineDirective = "#line";
 
   int version;
   EProfile profile;
@@ -648,7 +668,7 @@ std::pair<EShLanguage, std::string> Compiler::GetShaderStageFromSourceCode(
     }
 
     // Update logical line number for the next line.
-    if (current_line.starts_with(kLineDirective)) {
+    if (current_line.starts_with(kLineDirectivePrefix)) {
       string_piece name;
       std::tie(logical_line_no, name) = DecodeLineDirective(current_line);
       if (!name.empty()) filename = name;
@@ -683,19 +703,29 @@ std::pair<EShLanguage, std::string> Compiler::GetShaderStageFromSourceCode(
         first_pragma_stage.str() + "'\n";
   }
 
+  constexpr size_t kMaxReportedConflicts = 3;
+  size_t num_conflicts = 0;
   for (size_t i = 1; i < stages.size(); ++i) {
     const string_piece& current_stage = std::get<2>(stages[i]);
     if (current_stage != first_pragma_stage) {
-      const string_piece& current_filename = std::get<0>(stages[i]);
-      const std::string current_line = std::to_string(std::get<1>(stages[i]));
-      error_message += current_filename.str() + ":" + current_line +
-                       ": error: '#pragma': conflicting stages for "
-                       "'shader_stage' #pragma: '" +
-                       current_stage.str() + "' (was '" +
-                       first_pragma_stage.str() + "' at " +
-                       first_pragma_filename.str() + ":" + first_pragma_line +
-                       ")\n";
+      ++num_conflicts;
+      if (num_conflicts <= kMaxReportedConflicts) {
+        const string_piece& current_filename = std::get<0>(stages[i]);
+        const std::string current_line = std::to_string(std::get<1>(stages[i]));
+        error_message += current_filename.str() + ":" + current_line +
+                         ": error: '#pragma': conflicting stages for "
+                         "'shader_stage' #pragma: '" +
+                         current_stage.str() + "' (was '" +
+                         first_pragma_stage.str() + "' at " +
+                         first_pragma_filename.str() + ":" + first_pragma_line +
+                         ")\n";
+      }
     }
+  }
+  if (num_conflicts > kMaxReportedConflicts) {
+    error_message += "error: ... " +
+                     std::to_string(num_conflicts - kMaxReportedConflicts) +
+                     " more conflicting 'shader_stage' pragmas\n";
   }
 
   return std::make_pair(error_message.empty() ? stage : EShLangCount,

@@ -550,7 +550,7 @@ TEST_F(CompileStringWithOptionsTest, ForcedVersionProfileInvalidModule) {
   ASSERT_NE(nullptr, compiler_.get_compiler_handle());
   EXPECT_THAT(CompilationErrors(kCoreVertShaderWithoutVersion,
                                 shaderc_glsl_vertex_shader, options_.get()),
-              HasSubstr("error: 'gl_ClipDistance' : undeclared identifier\n"));
+              HasSubstr("error: 'gl_ClipDistance' : required extension not requested"));
 }
 
 TEST_F(CompileStringWithOptionsTest, ForcedVersionProfileConflictingStd) {
@@ -645,6 +645,25 @@ TEST_F(CompileStringWithOptionsTest, GenerateDebugInfoDisassembly) {
       CompilationOutput(kMinimalDebugInfoShader, shaderc_glsl_vertex_shader,
                         options_.get(), OutputType::SpirvAssemblyText),
       HasSubstr("debug_info_sample"));
+}
+
+TEST_F(CompileStringWithOptionsTest, GenerateNonSemanticDebugInfoDisassembly) {
+  shaderc_compile_options_set_generate_nonsemantic_debug_info(options_.get());
+  ASSERT_NE(nullptr, compiler_.get_compiler_handle());
+  EXPECT_THAT(
+      CompilationOutput(kMinimalDebugInfoShader, shaderc_glsl_vertex_shader,
+                        options_.get(), OutputType::SpirvAssemblyText),
+      HasSubstr("NonSemantic.Shader.DebugInfo.100"));
+}
+
+TEST_F(CompileStringWithOptionsTest, GenerateNonSemanticDebugSourceDisassembly) {
+  shaderc_compile_options_set_generate_nonsemantic_debug_source(options_.get());
+  ASSERT_NE(nullptr, compiler_.get_compiler_handle());
+  const std::string disassembly_text =
+      CompilationOutput(kMinimalDebugInfoShader, shaderc_glsl_vertex_shader,
+                        options_.get(), OutputType::SpirvAssemblyText);
+  EXPECT_THAT(disassembly_text, HasSubstr("NonSemantic.Shader.DebugInfo.100"));
+  EXPECT_THAT(disassembly_text, HasSubstr("debug_info_sample"));
 }
 
 TEST_F(CompileStringWithOptionsTest, CompileAndOptimizeWithLevelZero) {
@@ -1936,6 +1955,31 @@ TEST_F(CompileStringWithOptionsTest, NanClampSurvivesCloning) {
       CompilationOutput(kGlslShaderWithClamp, shaderc_fragment_shader,
                         cloned_options.get(), OutputType::SpirvAssemblyText);
   EXPECT_THAT(disassembly_text, HasSubstr("OpExtInst %v4float %1 NClamp"));
+}
+
+TEST(NullResultObj, GetLength) {
+  EXPECT_EQ(0u, shaderc_result_get_length(nullptr));
+}
+
+TEST(NullResultObj, GetNumWarnings) {
+  EXPECT_EQ(0u, shaderc_result_get_num_warnings(nullptr));
+}
+
+TEST(NullResultObj, GetNumErrors) {
+  EXPECT_EQ(0u, shaderc_result_get_num_errors(nullptr));
+}
+
+TEST(NullResultObj, GetBytes) {
+  EXPECT_EQ(nullptr, shaderc_result_get_bytes(nullptr));
+}
+
+TEST(NullResultObj, GetErrorMessage) {
+  EXPECT_EQ(nullptr, shaderc_result_get_error_message(nullptr));
+}
+
+TEST(NullResultObj, GetCompilationStatus) {
+  EXPECT_EQ(shaderc_compilation_status_null_result_object,
+            shaderc_result_get_compilation_status(nullptr));
 }
 
 }  // anonymous namespace
