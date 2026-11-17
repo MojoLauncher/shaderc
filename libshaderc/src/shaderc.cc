@@ -804,6 +804,10 @@ void shaderc_get_spv_version(unsigned int* version, unsigned int* revision) {
   *revision = spv::Revision;
 }
 
+const char* shaderc_get_spirv_tools_version_string(void) {
+  return spvSoftwareVersionString();
+}
+
 bool shaderc_parse_version_profile(const char* str, int* version,
                                    shaderc_profile* profile) {
   EProfile glslang_profile;
